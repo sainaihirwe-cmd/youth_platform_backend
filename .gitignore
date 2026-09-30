@@ -1,0 +1,7 @@
+node_modules/
+.env
+uploads/resumes/*
+uploads/images/*
+!uploads/**/.gitkeep
+coverage/
+tests/tmp-uploads/

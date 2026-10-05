@@ -10,7 +10,8 @@
     "seed:categories": "node scripts/seedCategories.js",
     "seed:sample": "node scripts/seedSampleData.js",
     "create-admin": "node scripts/createAdmin.js",
-    "test-email": "node scripts/testEmail.js"
+    "test-email": "node scripts/testEmail.js",
+    "copy-db": "node scripts/copyDatabase.js"
   },
   "author": "",
   "license": "MIT",

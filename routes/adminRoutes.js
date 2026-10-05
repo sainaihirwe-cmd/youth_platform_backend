@@ -48,6 +48,7 @@ router.patch(
 );
 
 router.get('/reports', ctrl.getReports);
+router.get('/reports/export', ctrl.exportReports);
 router.patch(
   '/reports/:id',
   [

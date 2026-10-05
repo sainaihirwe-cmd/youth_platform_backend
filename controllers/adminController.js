@@ -9,6 +9,7 @@ const Setting = require('../models/Setting');
 const ContactMessage = require('../models/ContactMessage');
 const ApiError = require('../utils/ApiError');
 const { sendSuccess, parsePagination, buildPagination, escapeRegex } = require('../utils/apiResponse');
+const { toCsv } = require('../utils/csv');
 const { pick } = require('../middleware/validationMiddleware');
 const { notify } = require('../services/notificationService');
 const { deleteUserCascade } = require('../services/cleanupService');
@@ -370,14 +371,20 @@ exports.moderateJob = async (req, res) => {
 };
 
 // GET /api/admin/reports
+/** Report filter shared by the list and the export, so an export always matches what the admin sees. */
+function reportFilter(query) {
+  const filter = {};
+  const status = String(query.status || '');
+  if (REPORT_STATUSES.includes(status)) filter.status = status;
+  if (query.type === 'job') filter.reportedJobId = { $ne: null };
+  if (query.type === 'user') filter.reportedJobId = null;
+  if (query.reason) filter.reason = String(query.reason);
+  return filter;
+}
+
 exports.getReports = async (req, res) => {
   const { page, limit, skip } = parsePagination(req.query, { defaultLimit: 15 });
-  const filter = {};
-  const status = String(req.query.status || '');
-  if (REPORT_STATUSES.includes(status)) filter.status = status;
-  if (req.query.type === 'job') filter.reportedJobId = { $ne: null };
-  if (req.query.type === 'user') filter.reportedJobId = null;
-  if (req.query.reason) filter.reason = String(req.query.reason);
+  const filter = reportFilter(req.query);
 
   const [reports, total, counts] = await Promise.all([
     Report.find(filter)
@@ -394,6 +401,61 @@ exports.getReports = async (req, res) => {
   const statusCounts = Object.fromEntries(REPORT_STATUSES.map((s) => [s, 0]));
   counts.forEach((c) => (statusCounts[c._id] = c.count));
   return sendSuccess(res, { data: { reports, counts: statusCounts }, pagination: buildPagination(page, limit, total) });
+};
+
+const EXPORT_LIMIT = 5000;
+
+// GET /api/admin/reports/export?format=csv|json&status=&type=&reason=
+// csv: a downloadable spreadsheet; json: the same rows for the printable report page.
+exports.exportReports = async (req, res) => {
+  const filter = reportFilter(req.query);
+  const [reports, total] = await Promise.all([
+    Report.find(filter)
+      .sort({ createdAt: -1 })
+      .limit(EXPORT_LIMIT)
+      .populate('reporterId', 'name email')
+      .populate('reportedJobId', 'title status')
+      .populate('reportedUserId', 'name email role')
+      .populate('reviewedBy', 'name')
+      .lean(),
+    Report.countDocuments(filter),
+  ]);
+
+  const rows = reports.map((r) => ({
+    id: String(r._id),
+    createdAt: r.createdAt,
+    status: r.status,
+    reason: r.reason,
+    // A populated-but-deleted job is null; a user report has no reportedJobId at all
+    type: r.reportedJobId !== undefined ? 'job' : 'user',
+    reportedJob: r.reportedJobId?.title || '',
+    reportedUser: r.reportedUserId?.name || '',
+    reportedUserEmail: r.reportedUserId?.email || '',
+    reporter: r.reporterId?.name || '',
+    reporterEmail: r.reporterId?.email || '',
+    description: r.description || '',
+    actionTaken: r.actionTaken || 'none',
+    adminNotes: r.adminNotes || '',
+    reviewedBy: r.reviewedBy?.name || '',
+    reviewedAt: r.reviewedAt || null,
+  }));
+
+  if (req.query.format === 'json') {
+    return sendSuccess(res, { data: { rows, total, truncated: total > rows.length, generatedAt: new Date() } });
+  }
+
+  const headers = ['Report ID', 'Date', 'Status', 'Reason', 'Type', 'Reported job', 'Reported user', 'Reported user email', 'Reporter', 'Reporter email', 'Details', 'Action taken', 'Admin notes', 'Reviewed by', 'Reviewed at'];
+  const csv = toCsv(
+    headers,
+    rows.map((r) => [r.id, r.createdAt, r.status, r.reason, r.type, r.reportedJob, r.reportedUser, r.reportedUserEmail, r.reporter, r.reporterEmail, r.description, r.actionTaken, r.adminNotes, r.reviewedBy, r.reviewedAt])
+  );
+  const stamp = new Date().toISOString().slice(0, 10);
+  res.set({
+    'Content-Type': 'text/csv; charset=utf-8',
+    'Content-Disposition': `attachment; filename="jobconnect-reports-${stamp}.csv"`,
+    'Cache-Control': 'no-store',
+  });
+  return res.send(csv);
 };
 
 // PATCH /api/admin/reports/:id   { status, adminNotes, action: none|suspend_user|remove_job }

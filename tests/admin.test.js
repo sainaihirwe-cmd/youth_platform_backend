@@ -64,6 +64,7 @@ describe('Administrator permissions and moderation', () => {
       ['patch', `/api/admin/users/${seeker.user._id}/status`],
       ['get', '/api/admin/jobs'],
       ['get', '/api/admin/reports'],
+      ['get', '/api/admin/reports/export'],
       ['get', '/api/admin/settings'],
       ['put', '/api/admin/settings'],
     ];
@@ -142,6 +143,37 @@ describe('Administrator permissions and moderation', () => {
     expect((await User.findById(employer.user._id)).isSuspended).toBe(true);
 
     await admin.agent.patch(`/api/admin/reports/${id}`).send({ status: 'bogus' }).expect(400);
+  });
+
+  it('exports reports as CSV and JSON, honouring filters', async () => {
+    const reporter = await registerAgent('job_seeker');
+    const owner = await registerAgent('employer');
+    const target = await createJob(owner.agent, { title: 'Export, "Quoted" Job' });
+    await reporter.agent
+      .post('/api/reports')
+      .send({ reportedJobId: target._id, reason: 'misleading', description: '=HYPERLINK("http://evil")' })
+      .expect(201);
+    await reporter.agent.post('/api/reports').send({ reportedUserId: owner.user._id, reason: 'spam' }).expect(201);
+
+    const csv = await admin.agent.get('/api/admin/reports/export');
+    expect(csv.status).toBe(200);
+    expect(csv.headers['content-type']).toMatch(/text\/csv/);
+    expect(csv.headers['content-disposition']).toMatch(/attachment; filename="jobconnect-reports-\d{4}-\d{2}-\d{2}\.csv"/);
+    expect(csv.text.charCodeAt(0)).toBe(0xfeff);
+    expect(csv.text).toContain('Report ID,Date,Status,Reason,Type');
+    expect(csv.text).toContain('"Export, ""Quoted"" Job"');
+    // Formula injection is neutralised
+    expect(csv.text).toContain(`"'=HYPERLINK(""http://evil"")"`);
+
+    const jobsOnly = await admin.agent.get('/api/admin/reports/export?format=json&type=job&reason=misleading');
+    expect(jobsOnly.status).toBe(200);
+    expect(jobsOnly.body.data.rows.every((r) => r.type === 'job' && r.reason === 'misleading')).toBe(true);
+    expect(jobsOnly.body.data.rows.some((r) => r.reportedJob === 'Export, "Quoted" Job')).toBe(true);
+    expect(jobsOnly.body.data.truncated).toBe(false);
+
+    const usersOnly = await admin.agent.get('/api/admin/reports/export?format=json&type=user');
+    expect(usersOnly.body.data.rows.length).toBeGreaterThan(0);
+    expect(usersOnly.body.data.rows.every((r) => r.type === 'user')).toBe(true);
   });
 
   it('prevents non-admins from modifying reports', async () => {

@@ -1,0 +1,38 @@
+# Render Blueprint for the JobConnect Rwanda API (https://render.com/docs/blueprint-spec)
+# 1. In Render: New > Blueprint > select this repository.
+# 2. Fill in the environment variables marked "sync: false" when prompted.
+# 3. The frontend repo's rewrites point to https://youth-platform-backend.onrender.com -
+#    if you rename this service, update them there too.
+services:
+  - type: web
+    name: youth-platform-backend
+    runtime: node
+    plan: free
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MONGO_URI
+        sync: false # MongoDB Atlas connection string
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 1d
+      - key: CLIENT_URL
+        value: https://youth-platform-frontend.onrender.com
+      - key: EMAIL_HOST
+        value: smtp.gmail.com
+      - key: EMAIL_PORT
+        value: '587'
+      - key: EMAIL_USER
+        sync: false
+      - key: EMAIL_PASS
+        sync: false
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false

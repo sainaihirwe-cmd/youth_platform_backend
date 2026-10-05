@@ -9,7 +9,7 @@ const Setting = require('../models/Setting');
 const ContactMessage = require('../models/ContactMessage');
 const ApiError = require('../utils/ApiError');
 const { sendSuccess, parsePagination, buildPagination, escapeRegex } = require('../utils/apiResponse');
-const { toCsv } = require('../utils/csv');
+const { EXPORT_FORMATS, renderReports } = require('../services/reportExportService');
 const { pick } = require('../middleware/validationMiddleware');
 const { notify } = require('../services/notificationService');
 const { deleteUserCascade } = require('../services/cleanupService');
@@ -405,9 +405,11 @@ exports.getReports = async (req, res) => {
 
 const EXPORT_LIMIT = 5000;
 
-// GET /api/admin/reports/export?format=csv|json&status=&type=&reason=
-// csv: a downloadable spreadsheet; json: the same rows for the printable report page.
+// GET /api/admin/reports/export?format=csv|xlsx|pdf|json&status=&type=&reason=
+// Downloads a file. `format=json` without `download=1` returns the rows as a normal API response
+// (used by the printable report page).
 exports.exportReports = async (req, res) => {
+  const format = EXPORT_FORMATS.includes(req.query.format) ? req.query.format : 'csv';
   const filter = reportFilter(req.query);
   const [reports, total] = await Promise.all([
     Report.find(filter)
@@ -439,23 +441,25 @@ exports.exportReports = async (req, res) => {
     reviewedBy: r.reviewedBy?.name || '',
     reviewedAt: r.reviewedAt || null,
   }));
+  const meta = {
+    generatedAt: new Date(),
+    total,
+    truncated: total > rows.length,
+    filters: { status: filter.status || '', type: ['job', 'user'].includes(req.query.type) ? req.query.type : '', reason: filter.reason || '' },
+  };
 
-  if (req.query.format === 'json') {
-    return sendSuccess(res, { data: { rows, total, truncated: total > rows.length, generatedAt: new Date() } });
+  if (format === 'json' && req.query.download !== '1') {
+    return sendSuccess(res, { data: { rows, total, truncated: meta.truncated, generatedAt: meta.generatedAt } });
   }
 
-  const headers = ['Report ID', 'Date', 'Status', 'Reason', 'Type', 'Reported job', 'Reported user', 'Reported user email', 'Reporter', 'Reporter email', 'Details', 'Action taken', 'Admin notes', 'Reviewed by', 'Reviewed at'];
-  const csv = toCsv(
-    headers,
-    rows.map((r) => [r.id, r.createdAt, r.status, r.reason, r.type, r.reportedJob, r.reportedUser, r.reportedUserEmail, r.reporter, r.reporterEmail, r.description, r.actionTaken, r.adminNotes, r.reviewedBy, r.reviewedAt])
-  );
-  const stamp = new Date().toISOString().slice(0, 10);
+  const { body, contentType, extension } = await renderReports(format, rows, meta);
+  const stamp = meta.generatedAt.toISOString().slice(0, 10);
   res.set({
-    'Content-Type': 'text/csv; charset=utf-8',
-    'Content-Disposition': `attachment; filename="jobconnect-reports-${stamp}.csv"`,
+    'Content-Type': contentType,
+    'Content-Disposition': `attachment; filename="jobconnect-reports-${stamp}.${extension}"`,
     'Cache-Control': 'no-store',
   });
-  return res.send(csv);
+  return res.send(body);
 };
 
 // PATCH /api/admin/reports/:id   { status, adminNotes, action: none|suspend_user|remove_job }

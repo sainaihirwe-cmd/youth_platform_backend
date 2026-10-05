@@ -145,7 +145,7 @@ describe('Administrator permissions and moderation', () => {
     await admin.agent.patch(`/api/admin/reports/${id}`).send({ status: 'bogus' }).expect(400);
   });
 
-  it('exports reports as CSV and JSON, honouring filters', async () => {
+  it('exports reports as CSV, Excel, PDF and JSON, honouring filters', async () => {
     const reporter = await registerAgent('job_seeker');
     const owner = await registerAgent('employer');
     const target = await createJob(owner.agent, { title: 'Export, "Quoted" Job' });
@@ -174,6 +174,34 @@ describe('Administrator permissions and moderation', () => {
     const usersOnly = await admin.agent.get('/api/admin/reports/export?format=json&type=user');
     expect(usersOnly.body.data.rows.length).toBeGreaterThan(0);
     expect(usersOnly.body.data.rows.every((r) => r.type === 'user')).toBe(true);
+
+    const binary = (r, cb) => {
+      r.setEncoding('binary');
+      let d = '';
+      r.on('data', (c) => (d += c));
+      r.on('end', () => cb(null, Buffer.from(d, 'binary')));
+    };
+    const xlsx = await admin.agent.get('/api/admin/reports/export?format=xlsx').buffer(true).parse(binary);
+    expect(xlsx.status).toBe(200);
+    expect(xlsx.headers['content-type']).toMatch(/spreadsheetml/);
+    expect(xlsx.headers['content-disposition']).toMatch(/\.xlsx"$/);
+    expect(xlsx.body.subarray(0, 2).toString()).toBe('PK'); // xlsx is a zip archive
+
+    const pdf = await admin.agent.get('/api/admin/reports/export?format=pdf&type=job').buffer(true).parse(binary);
+    expect(pdf.status).toBe(200);
+    expect(pdf.headers['content-type']).toBe('application/pdf');
+    expect(pdf.headers['content-disposition']).toMatch(/\.pdf"$/);
+    expect(pdf.body.subarray(0, 5).toString()).toBe('%PDF-');
+
+    const json = await admin.agent.get('/api/admin/reports/export?format=json&download=1&type=user');
+    expect(json.headers['content-disposition']).toMatch(/\.json"$/);
+    const file = JSON.parse(json.text);
+    expect(file.filters.type).toBe('user');
+    expect(file.reports.every((r) => r.type === 'user')).toBe(true);
+
+    // Unknown formats fall back to CSV
+    const fallback = await admin.agent.get('/api/admin/reports/export?format=exe');
+    expect(fallback.headers['content-type']).toMatch(/text\/csv/);
   });
 
   it('prevents non-admins from modifying reports', async () => {

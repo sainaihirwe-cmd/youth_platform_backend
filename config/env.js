@@ -41,6 +41,11 @@ function assertRequiredEnv() {
   if (missing.length) {
     throw new Error(`Missing required environment variables: ${missing.join(', ')}. See backend/.env.example.`);
   }
+  if (env.isProduction && /\/\/(127\.0\.0\.1|localhost)[:/]/.test(env.mongoUri)) {
+    throw new Error(
+      'MONGO_URI points to a local database (127.0.0.1/localhost), which does not exist on the server. Use a MongoDB Atlas connection string (mongodb+srv://...).'
+    );
+  }
   if (env.isProduction && env.jwtSecret.length < 32) {
     throw new Error('JWT_SECRET must be at least 32 characters in production.');
   }

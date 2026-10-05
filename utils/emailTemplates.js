@@ -23,6 +23,7 @@ const ROLE_CONTENT = {
 function welcomeEmail(user) {
   const content = ROLE_CONTENT[user.role] || ROLE_CONTENT[ROLES.JOB_SEEKER];
   const url = `${env.clientUrls[0]}${content.path}`;
+  const logoUrl = `${env.clientUrls[0]}/icon-192.png`;
   const firstName = user.name.split(' ')[0];
   const subject = 'Welcome to JobConnect Rwanda';
 
@@ -45,7 +46,15 @@ function welcomeEmail(user) {
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:24px 12px;">
     <tr><td align="center">
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:12px;overflow:hidden;">
-        <tr><td style="background:#0f2a4a;padding:24px 32px;color:#ffffff;font-size:20px;font-weight:bold;">JobConnect Rwanda</td></tr>
+        <tr><td style="background:#0b1f3a;padding:20px 32px;">
+          <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+            <td style="padding-right:12px;"><img src="${escapeHtml(logoUrl)}" width="44" height="44" alt="" style="display:block;border:0;border-radius:10px;"></td>
+            <td style="font-family:Arial,Helvetica,sans-serif;line-height:1.1;">
+              <div style="font-size:20px;font-weight:bold;color:#ffffff;">Job<span style="color:#60a5fa;">Connect</span></div>
+              <div style="font-size:11px;font-weight:bold;letter-spacing:4px;color:#facc15;">RWANDA</div>
+            </td>
+          </tr></table>
+        </td></tr>
         <tr><td style="padding:32px;">
           <h1 style="margin:0 0 16px;font-size:22px;">Welcome, ${escapeHtml(firstName)}!</h1>
           <p style="margin:0 0 20px;font-size:15px;line-height:1.6;color:#334155;">${escapeHtml(content.intro)}</p>
